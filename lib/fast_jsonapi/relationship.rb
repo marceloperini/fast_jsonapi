@@ -40,7 +40,7 @@ module FastJsonapi
 
         output_hash[key] = {}
         unless lazy_load_data
-          output_hash[key][:data] = ids_hash_from_record_and_relationship(record, serialization_params) || empty_case
+          output_hash[key] = ids_hash_from_record_and_relationship(record, serialization_params) || empty_case
         end
         add_links_hash(record, serialization_params, output_hash) if links.present?
       end
@@ -62,8 +62,8 @@ module FastJsonapi
     private
 
     def ids_hash_from_record_and_relationship(record, params = {})
-      return ids_hash(
-        fetch_id(record, params)
+      return serialize_relationship_records(
+        fetch_relationship_records(record, params)
       ) unless polymorphic
 
       return unless associated_object = fetch_associated_object(record, params)
@@ -81,6 +81,12 @@ module FastJsonapi
       id_hash(record.id, associated_record_type)
     end
 
+    def serialize_relationship_records(records)
+      ids_hash(records) unless serializer.present?
+
+      serializer.new(records).to_hash
+    end
+
     def ids_hash(ids)
       return ids.map { |id| id_hash(id, record_type) } if ids.respond_to? :map
       id_hash(ids, record_type) # ids variable is just a single id here
@@ -92,6 +98,19 @@ module FastJsonapi
       else
         default_return ? { id: nil, type: record_type } : nil
       end
+    end
+
+    def fetch_relationship_records(record, params)
+      method_fetcher = (serializer.present? ? name : id_method_name)
+
+      if object_block.present?
+        object = object_block.call(record, params)
+
+        return object.map { |item| item.public_send(method_fetcher)  } if object.respond_to? :map
+        return object.try(method_fetcher)
+      end
+
+      record.public_send(method_fetcher)
     end
 
     def fetch_id(record, params)
